@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from 'next/server'
 const BUILD_ID =
   process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ||
   process.env.GIT_COMMIT_SHA?.slice(0, 7) ||
+  process.env.VERCEL_GITHUB_COMMIT_SHA?.slice(0, 7) ||
+  process.env.VERCEL_GIT_COMMIT_REF ||
+  process.env.VERCEL_DEPLOYMENT_ID?.slice(0, 7) ||
+  process.env.VERCEL_URL ||
+  process.env.VERCEL_PROJECT_PRODUCTION_URL ||
   'local'
 
 /**
@@ -104,20 +109,55 @@ export async function POST(request: NextRequest) {
       headers['x-api-key'] = trimmed
     }
 
-    const apiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        parent_name,
-        student_name,
-        grade_code,
-        student_phone,
-        goal,
-        // Keep parent_phone if provided by the UI (backend may use it for WhatsApp flows)
-        ...(parent_phone ? { parent_phone } : {}),
-        ...(referral_code ? { referral_code } : {}),
-      }),
-    })
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+    const doFetch = async () =>
+      fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          parent_name,
+          student_name,
+          grade_code,
+          student_phone,
+          goal,
+          // Keep parent_phone if provided by the UI (backend may use it for WhatsApp flows)
+          ...(parent_phone ? { parent_phone } : {}),
+          ...(referral_code ? { referral_code } : {}),
+        }),
+      })
+
+    // Backend may return `schema_not_ready` briefly on cold start / migrations.
+    // We'll retry a few times to avoid flaky 503s on Vercel.
+    let apiResponse = await doFetch()
+
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      if (apiResponse.ok) break
+
+      if (apiResponse.status !== 503) break
+
+      const ct = apiResponse.headers.get('content-type') || ''
+      const raw = await apiResponse.text()
+      let parsed: any = raw
+      if (ct.includes('application/json')) {
+        try {
+          parsed = JSON.parse(raw)
+        } catch {
+          parsed = raw
+        }
+      }
+
+      // Only retry if backend explicitly says it's initializing.
+      if (parsed?.error !== 'schema_not_ready') {
+        // Re-create a response-like object by re-fetching once so later error handling has a body.
+        apiResponse = await doFetch()
+        break
+      }
+
+      // backoff: 500ms, 1000ms, 1500ms, 2000ms, 2500ms, 3000ms (caps total wait ~10.5s)
+      await sleep(500 * attempt)
+      apiResponse = await doFetch()
+    }
 
     // If backend rejects, surface the exact backend response for debugging.
     if (!apiResponse.ok) {
@@ -136,6 +176,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           build: BUILD_ID,
+          build_env: process.env.VERCEL_ENV || 'unknown',
+          vercel_url:
+            process.env.VERCEL_URL ||
+            process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+            null,
           error: `Backend rejected request (${apiResponse.status})`,
           backend: {
             url: apiUrl,
