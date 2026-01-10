@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.MAYADESTEK_API_KEY
     const apiBase =
       process.env.MAYADESTEK_API_BASE ||
-      'https://mayadestek-api-355l5o2k7q7q-uc.a.run.app'
+      'https://mayadestek-api-89254173016.us-central1.run.app'
 
     if (!apiKey) {
       return NextResponse.json(
@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
       build: BUILD_ID,
       ...apiData,
       base_url: apiBase,
+      backend_url: apiUrl,
     })
   } catch (error) {
     return NextResponse.json(
