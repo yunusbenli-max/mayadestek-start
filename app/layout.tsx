@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'MayaDestek - Start Your 7-Day Free Trial',
-  description: 'Onboarding for MayaDestek learning platform',
+  title: 'MayaDestek - Start',
+  description: 'MayaDestek Onboarding',
 }
 
 export default function RootLayout({
